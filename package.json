@@ -1,0 +1,33 @@
+{
+  "name": "contracts",
+  "version": "1.0.0",
+  "description": "these are my contracts",
+  "main": "index.js",
+  "scripts": {
+    "test": "hardhat test",
+    "compile": "hardhat compile",
+    "deploy": "hardhat run scripts/deploy.js",
+    "node": "hardhat node"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@aave/core-v3": "^1.19.3",
+    "@aave/deploy-v3": "^1.56.2",
+    "@nomicfoundation/hardhat-chai-matchers": "^2.1.0",
+    "@nomicfoundation/hardhat-ethers": "^3.1.0",
+    "@nomicfoundation/hardhat-ignition-ethers": "^0.15.14",
+    "@nomicfoundation/hardhat-network-helpers": "^1.1.0",
+    "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "@nomicfoundation/hardhat-verify": "^2.1.0",
+    "@openzeppelin/contracts": "^5.4.0",
+    "chai": "^5.2.1",
+    "ethers": "^6.15.0",
+    "hardhat": "^2.26.1",
+    "hardhat-gas-reporter": "^2.3.0",
+    "solidity-coverage": "^0.8.16"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.1"
+  }
+}
