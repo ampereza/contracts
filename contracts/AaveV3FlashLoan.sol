@@ -12,6 +12,11 @@ import "./interfaces/IUniswapV3Router.sol";
 import "./interfaces/ISushiSwapRouter.sol";
 import "./interfaces/ICamelotRouter.sol";
 import "./interfaces/IWETH.sol";
+import "./interfaces/IBalancerVault.sol";
+import "./interfaces/ICurvePool.sol";
+import "./interfaces/IWombatRouter.sol";
+import "./interfaces/IArbswapRouter.sol";
+import "./interfaces/ITraderJoeRouter.sol";
 
 contract AaveV3FlashLoan is IFlashLoanReceiver, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -24,6 +29,11 @@ contract AaveV3FlashLoan is IFlashLoanReceiver, ReentrancyGuard {
     IUniswapV3Router public constant UNISWAP_V3_ROUTER = IUniswapV3Router(0xE592427A0AEce92De3Edee1F18E0157C05861564);
     ISushiSwapRouter public constant SUSHI_ROUTER = ISushiSwapRouter(0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506);
     ICamelotRouter public constant CAMELOT_ROUTER = ICamelotRouter(0xc873fEcbd354f5A56E00E710B90EF4201db2448d);
+    IBalancerVault public constant BALANCER_VAULT = IBalancerVault(0xBA12222222228d8Ba445958a75a0704d566BF2C8);
+    ICurveRegistry public constant CURVE_REGISTRY = ICurveRegistry(0x445FE580eF8d70FF569aB36e80c647af338db351);
+    IWombatRouter public constant WOMBAT_ROUTER = IWombatRouter(0x19609B03c976ccA288FbdAE5C21D4290CA2b17DC);
+    IArbswapRouter public constant ARBSWAP_ROUTER = IArbswapRouter(0x2F87511F76e6fabDa4Fd4BBf01f0ED8bb2A037F4);
+    ITraderJoeRouter public constant TRADERJOE_ROUTER = ITraderJoeRouter(0x60aE616a2155Ee3d9A68541Ba4544862310933d4);
     IWETH public constant WETH = IWETH(0x82aF49447D8a07e3bd95BD0d56f35241523fBab1);
 
     // Common token addresses on Arbitrum
@@ -160,6 +170,14 @@ contract AaveV3FlashLoan is IFlashLoanReceiver, ReentrancyGuard {
             _executeSushiTrade(params.tokenA, params.tokenB, params.amountIn, params.minAmountOut);
         } else if (params.dexA == address(CAMELOT_ROUTER)) {
             _executeCamelotTrade(params.tokenA, params.tokenB, params.amountIn, params.minAmountOut);
+        } else if (params.dexA == address(BALANCER_VAULT)) {
+            _executeBalancerTrade(params.tokenA, params.tokenB, params.amountIn, params.minAmountOut);
+        } else if (params.dexA == address(WOMBAT_ROUTER)) {
+            _executeWombatTrade(params.tokenA, params.tokenB, params.amountIn, params.minAmountOut);
+        } else if (params.dexA == address(ARBSWAP_ROUTER)) {
+            _executeArbswapTrade(params.tokenA, params.tokenB, params.amountIn, params.minAmountOut);
+        } else if (params.dexA == address(TRADERJOE_ROUTER)) {
+            _executeTraderJoeTrade(params.tokenA, params.tokenB, params.amountIn, params.minAmountOut);
         } else {
             revert("Unsupported DEX A");
         }
@@ -178,6 +196,14 @@ contract AaveV3FlashLoan is IFlashLoanReceiver, ReentrancyGuard {
             _executeSushiTrade(params.tokenB, params.tokenA, tokenBReceived, params.amountIn);
         } else if (params.dexB == address(CAMELOT_ROUTER)) {
             _executeCamelotTrade(params.tokenB, params.tokenA, tokenBReceived, params.amountIn);
+        } else if (params.dexB == address(BALANCER_VAULT)) {
+            _executeBalancerTrade(params.tokenB, params.tokenA, tokenBReceived, params.amountIn);
+        } else if (params.dexB == address(WOMBAT_ROUTER)) {
+            _executeWombatTrade(params.tokenB, params.tokenA, tokenBReceived, params.amountIn);
+        } else if (params.dexB == address(ARBSWAP_ROUTER)) {
+            _executeArbswapTrade(params.tokenB, params.tokenA, tokenBReceived, params.amountIn);
+        } else if (params.dexB == address(TRADERJOE_ROUTER)) {
+            _executeTraderJoeTrade(params.tokenB, params.tokenA, tokenBReceived, params.amountIn);
         } else {
             revert("Unsupported DEX B");
         }
@@ -265,6 +291,107 @@ contract AaveV3FlashLoan is IFlashLoanReceiver, ReentrancyGuard {
         return balanceAfter - balanceBefore;
     }
 
+    // Balancer trading function
+    function _executeBalancerTrade(
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint256 amountOutMinimum
+    ) internal returns (uint256) {
+        // Note: This is a simplified implementation. In production, you'd need to:
+        // 1. Find the appropriate pool ID for the token pair
+        // 2. Handle multi-hop swaps if direct pool doesn't exist
+        bytes32 poolId = _getBalancerPoolId(tokenIn, tokenOut);
+        
+        IBalancerVault.SingleSwap memory singleSwap = IBalancerVault.SingleSwap({
+            poolId: poolId,
+            kind: IBalancerVault.SwapKind.GIVEN_IN,
+            assetIn: tokenIn,
+            assetOut: tokenOut,
+            amount: amountIn,
+            userData: ""
+        });
+
+        IBalancerVault.FundManagement memory funds = IBalancerVault.FundManagement({
+            sender: address(this),
+            fromInternalBalance: false,
+            recipient: payable(address(this)),
+            toInternalBalance: false
+        });
+
+        return BALANCER_VAULT.swap(singleSwap, funds, amountOutMinimum, block.timestamp + 300);
+    }
+
+    // Wombat Exchange trading function
+    function _executeWombatTrade(
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint256 amountOutMinimum
+    ) internal returns (uint256) {
+        address[] memory tokenPath = new address[](2);
+        tokenPath[0] = tokenIn;
+        tokenPath[1] = tokenOut;
+        
+        address[] memory poolPath = new address[](1);
+        poolPath[0] = _getWombatPool(tokenIn, tokenOut); // Helper function to get pool address
+
+        uint256[] memory amounts = WOMBAT_ROUTER.swapExactTokensForTokens(
+            tokenPath,
+            poolPath,
+            amountIn,
+            amountOutMinimum,
+            address(this),
+            block.timestamp + 300
+        );
+
+        return amounts[1];
+    }
+
+    // Arbswap trading function
+    function _executeArbswapTrade(
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint256 amountOutMinimum
+    ) internal returns (uint256) {
+        address[] memory path = new address[](2);
+        path[0] = tokenIn;
+        path[1] = tokenOut;
+
+        uint256[] memory amounts = ARBSWAP_ROUTER.swapExactTokensForTokens(
+            amountIn,
+            amountOutMinimum,
+            path,
+            address(this),
+            block.timestamp + 300
+        );
+
+        return amounts[1];
+    }
+
+    // TraderJoe trading function
+    function _executeTraderJoeTrade(
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint256 amountOutMinimum
+    ) internal returns (uint256) {
+        address[] memory path = new address[](2);
+        path[0] = tokenIn;
+        path[1] = tokenOut;
+
+        uint256[] memory amounts = TRADERJOE_ROUTER.swapExactTokensForTokens(
+            amountIn,
+            amountOutMinimum,
+            path,
+            address(this),
+            block.timestamp + 300
+        );
+
+        return amounts[1];
+    }
+
     // Price checking functions for arbitrage opportunities
     function getUniswapV3Price(address tokenA, address tokenB, uint256 amountIn) 
         external 
@@ -308,6 +435,83 @@ contract AaveV3FlashLoan is IFlashLoanReceiver, ReentrancyGuard {
         }
     }
 
+    function getBalancerPrice(address tokenA, address tokenB, uint256 amountIn) 
+        external 
+        view 
+        returns (uint256) 
+    {
+        // Note: Balancer price querying requires more complex implementation
+        // For now, return 0 as placeholder. In production, you'd use:
+        // 1. Balancer SDK for price queries
+        // 2. Balancer subgraph data
+        // 3. Or implement proper pool querying logic
+        return 0;
+    }
+
+    function getWombatPrice(address tokenA, address tokenB, uint256 amountIn) 
+        external 
+        view 
+        returns (uint256) 
+    {
+        try WOMBAT_ROUTER.quotePotentialSwap(tokenA, tokenB, amountIn) returns (uint256 potentialOutcome, uint256) {
+            return potentialOutcome;
+        } catch {
+            return 0;
+        }
+    }
+
+    function getArbswapPrice(address tokenA, address tokenB, uint256 amountIn) 
+        external 
+        view 
+        returns (uint256) 
+    {
+        address[] memory path = new address[](2);
+        path[0] = tokenA;
+        path[1] = tokenB;
+        
+        try ARBSWAP_ROUTER.getAmountsOut(amountIn, path) returns (uint256[] memory amounts) {
+            return amounts[1];
+        } catch {
+            return 0;
+        }
+    }
+
+    function getTraderJoePrice(address tokenA, address tokenB, uint256 amountIn) 
+        external 
+        view 
+        returns (uint256) 
+    {
+        address[] memory path = new address[](2);
+        path[0] = tokenA;
+        path[1] = tokenB;
+        
+        try TRADERJOE_ROUTER.getAmountsOut(amountIn, path) returns (uint256[] memory amounts) {
+            return amounts[1];
+        } catch {
+            return 0;
+        }
+    }
+
+    function getCurvePrice(address tokenA, address tokenB, uint256 amountIn) 
+        external 
+        view 
+        returns (uint256) 
+    {
+        address pool = CURVE_REGISTRY.find_pool_for_coins(tokenA, tokenB);
+        if (pool == address(0)) return 0;
+        
+        try CURVE_REGISTRY.get_coin_indices(pool, tokenA, tokenB) returns (int128 i, int128 j, bool underlying) {
+            ICurvePool curvePool = ICurvePool(pool);
+            if (underlying) {
+                return curvePool.get_dy_underlying(i, j, amountIn);
+            } else {
+                return curvePool.get_dy(i, j, amountIn);
+            }
+        } catch {
+            return 0;
+        }
+    }
+
     // Configuration functions
     function setMinProfitBasisPoints(uint256 _minProfitBasisPoints) external onlyOwner {
         require(_minProfitBasisPoints <= 1000, "Max 10%"); // Max 10%
@@ -317,6 +521,33 @@ contract AaveV3FlashLoan is IFlashLoanReceiver, ReentrancyGuard {
     function setMaxSlippageBasisPoints(uint256 _maxSlippageBasisPoints) external onlyOwner {
         require(_maxSlippageBasisPoints <= 1000, "Max 10%"); // Max 10%
         maxSlippageBasisPoints = _maxSlippageBasisPoints;
+    }
+
+    // Helper functions for DEX-specific requirements
+    function _getBalancerPoolId(address tokenA, address tokenB) internal pure returns (bytes32) {
+        // Simplified implementation - in production, you'd maintain a mapping of token pairs to pool IDs
+        // or query the Balancer subgraph/API to find the best pool
+        if (tokenA == 0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1 && 
+            tokenB == 0xaf88d065e77c8cC2239327C5EDb3A432268e5831) {
+            // DAI/USDC pool ID (example)
+            return 0x0000000000000000000000000000000000000000000000000000000000000001;
+        }
+        // Return zero bytes32 for unsupported pairs
+        return bytes32(0);
+    }
+
+    function _getWombatPool(address tokenA, address tokenB) internal pure returns (address) {
+        // Simplified implementation - in production, you'd maintain a mapping of token pairs to pool addresses
+        // or query Wombat's factory contract
+        if ((tokenA == 0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1 && 
+             tokenB == 0xaf88d065e77c8cC2239327C5EDb3A432268e5831) ||
+            (tokenA == 0xaf88d065e77c8cC2239327C5EDb3A432268e5831 && 
+             tokenB == 0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1)) {
+            // DAI/USDC pool address (example)
+            return 0x0000000000000000000000000000000000000001;
+        }
+        // Return zero address for unsupported pairs
+        return address(0);
     }
 
     // Utility functions

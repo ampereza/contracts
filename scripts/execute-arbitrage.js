@@ -12,9 +12,15 @@ async function main() {
   const WETH_ADDRESS = "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1";
   
   // Arbitrum DEX addresses
-  const UNISWAP_V3_ROUTER = "0xE592427A0AEce92De3Edee1F18E0157C05861564";
-  const SUSHI_ROUTER = "0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506";
-  const CAMELOT_ROUTER = "0xc873fEcbd354f5A56E00E710B90EF4201db2448d";
+  const dexRouters = {
+    UNISWAP_V3: "0xE592427A0AEce92De3Edee1F18E0157C05861564",
+    SUSHISWAP: "0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506",
+    CAMELOT: "0xc873fEcbd354f5A56E00E710B90EF4201db2448d",
+    BALANCER: "0xBA12222222228d8Ba445958a75a0704d566BF2C8",
+    WOMBAT: "0x19609B03c976ccA288FbdAE5C21D4290CA2b17DC",
+    ARBSWAP: "0x2F87511F76e6fabDa4Fd4BBf01f0ED8bb2A037F4",
+    TRADERJOE: "0x60aE616a2155Ee3d9A68541Ba4544862310933d4"
+  };
   
   const [signer] = await hre.ethers.getSigners();
   console.log("Executing with account:", signer.address);
@@ -33,39 +39,79 @@ async function main() {
   const testAmount = hre.ethers.parseEther("1000"); // 1,000 DAI for price checking
   
   try {
-    // Get prices from different DEXs
-    const sushiPrice = await flashLoan.getSushiPrice(DAI_ADDRESS, USDC_ADDRESS, testAmount);
-    const camelotPrice = await flashLoan.getCamelotPrice(DAI_ADDRESS, USDC_ADDRESS, testAmount);
+    // Get prices from multiple DEXs
+    const [
+      sushiPrice, 
+      camelotPrice, 
+      balancerPrice, 
+      wombatPrice, 
+      arbswapPrice, 
+      traderJoePrice
+    ] = await Promise.all([
+      flashLoan.getSushiPrice(DAI_ADDRESS, USDC_ADDRESS, testAmount),
+      flashLoan.getCamelotPrice(DAI_ADDRESS, USDC_ADDRESS, testAmount),
+      flashLoan.getBalancerPrice(DAI_ADDRESS, USDC_ADDRESS, testAmount),
+      flashLoan.getWombatPrice(DAI_ADDRESS, USDC_ADDRESS, testAmount),
+      flashLoan.getArbswapPrice(DAI_ADDRESS, USDC_ADDRESS, testAmount),
+      flashLoan.getTraderJoePrice(DAI_ADDRESS, USDC_ADDRESS, testAmount)
+    ]);
     
-    console.log(`SushiSwap: 1000 DAI → ${hre.ethers.formatUnits(sushiPrice, 6)} USDC`);
-    console.log(`Camelot: 1000 DAI → ${hre.ethers.formatUnits(camelotPrice, 6)} USDC`);
+    // Create array of DEX prices
+    const dexPrices = [
+      { name: "SushiSwap", price: sushiPrice, router: dexRouters.SUSHISWAP },
+      { name: "Camelot", price: camelotPrice, router: dexRouters.CAMELOT },
+      { name: "Balancer", price: balancerPrice, router: dexRouters.BALANCER },
+      { name: "Wombat", price: wombatPrice, router: dexRouters.WOMBAT },
+      { name: "Arbswap", price: arbswapPrice, router: dexRouters.ARBSWAP },
+      { name: "TraderJoe", price: traderJoePrice, router: dexRouters.TRADERJOE }
+    ].filter(dex => dex.price > 0); // Only include DEXs with valid prices
+    
+    console.log("💱 Current prices across all DEXs:");
+    dexPrices.forEach(dex => {
+      console.log(`${dex.name}: 1000 DAI → ${hre.ethers.formatUnits(dex.price, 6)} USDC`);
+    });
+    
+    if (dexPrices.length < 2) {
+      console.log("❌ Need at least 2 DEXs with liquidity for arbitrage");
+      return;
+    }
+    
+    // Find best arbitrage opportunity
+    const sortedPrices = dexPrices.sort((a, b) => Number(b.price - a.price));
+    const highestDex = sortedPrices[0];
+    const lowestDex = sortedPrices[sortedPrices.length - 1];
+    
+    const highestPrice = parseFloat(hre.ethers.formatUnits(highestDex.price, 6));
+    const lowestPrice = parseFloat(hre.ethers.formatUnits(lowestDex.price, 6));
     
     // Calculate potential arbitrage opportunity
-    const priceDiff = sushiPrice > camelotPrice ? sushiPrice - camelotPrice : camelotPrice - sushiPrice;
-    const profitPercentage = (priceDiff * 100n) / (sushiPrice > camelotPrice ? camelotPrice : sushiPrice);
+    const priceDiff = highestPrice - lowestPrice;
+    const profitPercentage = (priceDiff / lowestPrice) * 100;
     
-    console.log(`Price difference: ${hre.ethers.formatUnits(priceDiff, 6)} USDC`);
-    console.log(`Potential profit: ${profitPercentage}%`);
+    console.log(`\n🔍 Best Arbitrage Opportunity:`);
+    console.log(`${highestDex.name}: ${highestPrice.toFixed(6)} USDC (highest)`);
+    console.log(`${lowestDex.name}: ${lowestPrice.toFixed(6)} USDC (lowest)`);
+    console.log(`Price difference: ${priceDiff.toFixed(6)} USDC`);
+    console.log(`Potential profit: ${profitPercentage.toFixed(3)}%`);
     
-    // Only proceed if profit is > 0.2%
-    if (profitPercentage < 20n) { // 20 basis points = 0.2%
+    // Only proceed if profit is > 0.8% (to cover all fees)
+    if (profitPercentage < 80) { // 80 basis points = 0.8%
       console.log("❌ No profitable arbitrage opportunity found");
-      console.log("💡 Try again later when price differences are larger");
+      console.log("💡 Need >0.8% price difference to cover Aave fees + DEX fees + gas");
       return;
     }
     
     console.log("✅ Profitable arbitrage opportunity detected!");
     
-    // Determine which DEX has better rates
-    const useUniswapFirst = sushiPrice > camelotPrice;
-    const dexA = useUniswapFirst ? SUSHI_ROUTER : CAMELOT_ROUTER;
-    const dexB = useUniswapFirst ? CAMELOT_ROUTER : SUSHI_ROUTER;
+    console.log(`Strategy: DAI → USDC on ${lowestDex.name} (buy low)`);
+    console.log(`Then: USDC → DAI on ${highestDex.name} (sell high)`);
     
-    console.log(`Strategy: DAI → USDC on ${useUniswapFirst ? 'SushiSwap' : 'Camelot'}`);
-    console.log(`Then: USDC → DAI on ${useUniswapFirst ? 'Camelot' : 'SushiSwap'}`);
+    // Use the DEX with lowest price first, then highest price
+    const dexA = lowestDex.router;  // Buy USDC here (lower price)
+    const dexB = highestDex.router; // Sell USDC here (higher price)
     
     // Calculate minimum amounts with slippage protection
-    const minUSDCOut = (testAmount * (useUniswapFirst ? sushiPrice : camelotPrice) * 995n) / (1000n * hre.ethers.parseEther("1")); // 0.5% slippage
+    const minUSDCOut = (testAmount * lowestDex.price * 995n) / (1000n * hre.ethers.parseEther("1")); // 0.5% slippage
     const minDAIBack = (flashLoanAmount * 998n) / 1000n; // Must get back at least 99.8% to cover fees
     
     // Prepare arbitrage parameters

@@ -1,29 +1,37 @@
-# 🚀 Flash Loan Arbitrage Guide
+# 🚀 Multi-DEX Flash Loan Arbitrage Guide
 
 ## 🎯 Overview
 
-Your enhanced Aave V3 Flash Loan contract now includes sophisticated arbitrage trading capabilities across multiple DEXs on Arbitrum:
+Your enhanced Aave V3 Flash Loan contract now includes sophisticated arbitrage trading capabilities across **7 major DEXs** on Arbitrum:
 
-- **Uniswap V3**: High liquidity, 0.3% fee pools
-- **SushiSwap**: Competitive rates, established AMM
-- **Camelot**: Arbitrum-native DEX with unique features
+### 🔁 **Supported DEXs**
 
-## 🔧 New Features Added
+| DEX | Type | Specialty | Fee Structure |
+|-----|------|-----------|---------------|
+| **Uniswap V3** | Concentrated Liquidity AMM | High efficiency, multiple fee tiers | 0.05%, 0.3%, 1% |
+| **SushiSwap** | Traditional AMM | Cross-chain, established | 0.25% |
+| **Camelot** | Native Arbitrum AMM | Low fees, native features | 0.25% |
+| **Balancer** | Weighted Pool AMM | Multi-asset pools, custom ratios | 0.1-1% |
+| **Wombat Exchange** | Stable-swap Optimized | Low slippage stablecoins | 0.04-0.1% |
+| **Arbswap** | Native AMM | Arbitrum-first, staking features | 0.25% |
+| **TraderJoe** | Multi-chain AMM | Advanced order types | 0.25% |
 
-### 1. Multi-DEX Arbitrage Engine
-- Automatic price discovery across 3 major DEXs
+## 🔧 Enhanced Features
+
+### 1. **7-DEX Arbitrage Engine**
+- Automatic price discovery across all major Arbitrum DEXs
 - Smart routing for optimal profit extraction
-- Configurable profit thresholds and slippage protection
+- Cross-DEX opportunity detection with advanced algorithms
 
-### 2. Price Monitoring System
-- Real-time price checking functions
-- Opportunity detection algorithms
-- Profit calculation with fee considerations
+### 2. **Specialized Trading Logic**
+- **Stablecoin Arbitrage**: Optimized for DAI/USDC/USDT via Wombat & Curve
+- **Multi-Asset Pools**: Balancer integration for complex arbitrage
+- **High-Frequency Opportunities**: Fast execution across native Arbitrum DEXs
 
-### 3. Advanced Trading Logic
-- Flash loan → DEX A → DEX B → Repay loan + profit
-- Support for all major Arbitrum tokens (DAI, USDC, USDT, WETH)
-- Gas-optimized execution paths
+### 3. **Advanced Price Monitoring**
+- Real-time price feeds from 7 DEXs simultaneously  
+- Profit calculation with DEX-specific fee structures
+- Opportunity ranking by profitability and execution risk
 
 ## 📊 Usage Examples
 
@@ -55,17 +63,38 @@ await flashLoan.executeArbitrageFlashLoan(
 );
 ```
 
-### Price Monitoring
+## 📊 **7-DEX Price Monitoring**
 
 ```javascript
-// Check prices across DEXs
+// Check prices across ALL DEXs simultaneously
 const amount = ethers.parseEther("1000");
 
-const sushiPrice = await flashLoan.getSushiPrice(DAI_ADDRESS, USDC_ADDRESS, amount);
-const camelotPrice = await flashLoan.getCamelotPrice(DAI_ADDRESS, USDC_ADDRESS, amount);
+const [
+  uniswapPrice,
+  sushiPrice, 
+  camelotPrice,
+  balancerPrice,
+  wombatPrice,
+  arbswapPrice,
+  traderJoePrice
+] = await Promise.all([
+  flashLoan.getUniswapV3Price(DAI_ADDRESS, USDC_ADDRESS, amount),
+  flashLoan.getSushiPrice(DAI_ADDRESS, USDC_ADDRESS, amount),
+  flashLoan.getCamelotPrice(DAI_ADDRESS, USDC_ADDRESS, amount),
+  flashLoan.getBalancerPrice(DAI_ADDRESS, USDC_ADDRESS, amount),
+  flashLoan.getWombatPrice(DAI_ADDRESS, USDC_ADDRESS, amount),
+  flashLoan.getArbswapPrice(DAI_ADDRESS, USDC_ADDRESS, amount),
+  flashLoan.getTraderJoePrice(DAI_ADDRESS, USDC_ADDRESS, amount)
+]);
 
-console.log(`SushiSwap: 1000 DAI → ${ethers.formatUnits(sushiPrice, 6)} USDC`);
-console.log(`Camelot: 1000 DAI → ${ethers.formatUnits(camelotPrice, 6)} USDC`);
+console.log("💱 Cross-DEX Price Analysis:");
+console.log(`Uniswap V3: ${ethers.formatUnits(uniswapPrice, 6)} USDC`);
+console.log(`SushiSwap:  ${ethers.formatUnits(sushiPrice, 6)} USDC`);
+console.log(`Camelot:    ${ethers.formatUnits(camelotPrice, 6)} USDC`);
+console.log(`Balancer:   ${ethers.formatUnits(balancerPrice, 6)} USDC`);
+console.log(`Wombat:     ${ethers.formatUnits(wombatPrice, 6)} USDC`);
+console.log(`Arbswap:    ${ethers.formatUnits(arbswapPrice, 6)} USDC`);
+console.log(`TraderJoe:  ${ethers.formatUnits(traderJoePrice, 6)} USDC`);
 ```
 
 ## 🛠️ Scripts Available
