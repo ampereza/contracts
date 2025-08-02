@@ -27,7 +27,9 @@ module.exports = {
     },
     arbitrum: {
       url: "https://arbitrum-mainnet.infura.io/v3/1616139d333940faad526809f318e8cc",
-      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [], // Your private key from .env
+      accounts: process.env.PRIVATE_KEY && process.env.PRIVATE_KEY.length === 64 ? 
+        [process.env.PRIVATE_KEY] : 
+        [], // Only include if valid private key exists
     },
   },
   etherscan: {
