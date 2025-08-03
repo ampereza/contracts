@@ -47,6 +47,12 @@ contract AaveV3FlashLoan is IFlashLoanReceiver, ReentrancyGuard {
     uint256 public maxSlippageBasisPoints = 100; // 1% max slippage
     uint256 public constant BASIS_POINTS = 10000;
 
+    // Profit tracking
+    mapping(address => uint256) public totalProfits;
+    mapping(address => uint256) public totalTrades;
+    uint256 public totalArbitrageExecuted;
+    bool public autoWithdrawProfits = true; // Automatically withdraw profits after each trade
+
     struct ArbitrageParams {
         address tokenA;
         address tokenB;
@@ -67,6 +73,8 @@ contract AaveV3FlashLoan is IFlashLoanReceiver, ReentrancyGuard {
         uint256 profit
     );
     event ProfitWithdrawn(address indexed token, uint256 amount);
+    event ProfitCalculated(address indexed token, uint256 profit, uint256 totalProfit);
+    event AutoWithdrawalExecuted(address indexed token, uint256 amount);
 
     constructor(address addressProvider) {
         owner = msg.sender;
@@ -130,6 +138,7 @@ contract AaveV3FlashLoan is IFlashLoanReceiver, ReentrancyGuard {
 
         for (uint256 i = 0; i < assets.length; i++) {
             uint256 amountOwed = amounts[i] + premiums[i];
+            uint256 balanceBeforeArbitrage = IERC20(assets[i]).balanceOf(address(this));
             
             // If params are provided, execute arbitrage logic
             if (params.length > 0) {
@@ -139,12 +148,21 @@ contract AaveV3FlashLoan is IFlashLoanReceiver, ReentrancyGuard {
 
             emit FlashLoanExecuted(assets[i], amounts[i], premiums[i]);
             
-            // Ensure we have enough balance to repay the loan
+            // Calculate actual profit after arbitrage
             uint256 currentBalance = IERC20(assets[i]).balanceOf(address(this));
             require(currentBalance >= amountOwed, "Insufficient balance to repay loan");
             
+            // Calculate net profit (after flash loan fee)
+            uint256 netProfit = currentBalance - amountOwed;
+            
             // Approve the Pool contract allowance to pull the owed amount
             IERC20(assets[i]).approve(address(POOL), amountOwed);
+            
+            // Automatically withdraw profits to owner if enabled and profitable
+            if (autoWithdrawProfits && netProfit > 0) {
+                IERC20(assets[i]).transfer(owner, netProfit);
+                emit AutoWithdrawalExecuted(assets[i], netProfit);
+            }
         }
 
         return true;
@@ -211,15 +229,21 @@ contract AaveV3FlashLoan is IFlashLoanReceiver, ReentrancyGuard {
         uint256 finalBalance = IERC20(params.tokenA).balanceOf(address(this));
         uint256 totalReceived = finalBalance - balanceBeforeReturn;
         
-        // Calculate profit
+        // Calculate profit (amount received minus amount traded)
         require(totalReceived > params.amountIn, "Arbitrage not profitable");
-        uint256 profit = totalReceived - params.amountIn;
+        uint256 grossProfit = totalReceived - params.amountIn;
         
         // Ensure minimum profit threshold
         uint256 minProfit = (params.amountIn * minProfitBasisPoints) / BASIS_POINTS;
-        require(profit >= minProfit, "Profit below minimum threshold");
+        require(grossProfit >= minProfit, "Profit below minimum threshold");
 
-        emit ArbitrageExecuted(params.tokenA, params.tokenB, params.amountIn, totalReceived, profit);
+        // Update profit tracking
+        totalProfits[flashAsset] += grossProfit;
+        totalTrades[flashAsset] += 1;
+        totalArbitrageExecuted += 1;
+
+        emit ArbitrageExecuted(params.tokenA, params.tokenB, params.amountIn, totalReceived, grossProfit);
+        emit ProfitCalculated(flashAsset, grossProfit, totalProfits[flashAsset]);
     }
 
     // Uniswap V3 trading function
@@ -523,6 +547,71 @@ contract AaveV3FlashLoan is IFlashLoanReceiver, ReentrancyGuard {
         maxSlippageBasisPoints = _maxSlippageBasisPoints;
     }
 
+    // Enhanced profit management functions
+    function toggleAutoWithdraw() external onlyOwner {
+        autoWithdrawProfits = !autoWithdrawProfits;
+    }
+
+    function getDetailedBalance(address token) external view returns (
+        uint256 contractBalance,
+        uint256 totalProfitsEarned,
+        uint256 tradesExecuted,
+        uint256 averageProfitPerTrade
+    ) {
+        contractBalance = IERC20(token).balanceOf(address(this));
+        totalProfitsEarned = totalProfits[token];
+        tradesExecuted = totalTrades[token];
+        averageProfitPerTrade = tradesExecuted > 0 ? totalProfitsEarned / tradesExecuted : 0;
+    }
+
+    function getProfitsSummary() external view returns (
+        uint256 totalDAIProfit,
+        uint256 totalUSDCProfit,
+        uint256 totalUSDTProfit,
+        uint256 totalExecutedTrades
+    ) {
+        totalDAIProfit = totalProfits[DAI];
+        totalUSDCProfit = totalProfits[USDC];
+        totalUSDTProfit = totalProfits[USDT];
+        totalExecutedTrades = totalArbitrageExecuted;
+    }
+
+    // Manual profit withdrawal (if auto-withdraw is disabled)
+    function withdrawSpecificProfit(address token, uint256 amount) external onlyOwner {
+        uint256 balance = IERC20(token).balanceOf(address(this));
+        require(balance >= amount, "Insufficient balance");
+        require(amount > 0, "Amount must be greater than 0");
+        
+        IERC20(token).transfer(owner, amount);
+        emit ProfitWithdrawn(token, amount);
+    }
+
+    // Withdraw all available profits for a specific token
+    function withdrawAllProfits(address token) external onlyOwner {
+        uint256 balance = IERC20(token).balanceOf(address(this));
+        require(balance > 0, "No profits to withdraw");
+        
+        IERC20(token).transfer(owner, balance);
+        emit ProfitWithdrawn(token, balance);
+    }
+
+    // Withdraw all profits from all supported tokens
+    function withdrawAllTokenProfits() external onlyOwner {
+        address[] memory tokens = new address[](4);
+        tokens[0] = DAI;
+        tokens[1] = USDC;
+        tokens[2] = USDT;
+        tokens[3] = WETH_ADDRESS;
+        
+        for (uint256 i = 0; i < tokens.length; i++) {
+            uint256 balance = IERC20(tokens[i]).balanceOf(address(this));
+            if (balance > 0) {
+                IERC20(tokens[i]).transfer(owner, balance);
+                emit ProfitWithdrawn(tokens[i], balance);
+            }
+        }
+    }
+
     // Helper functions for DEX-specific requirements
     function _getBalancerPoolId(address tokenA, address tokenB) internal pure returns (bytes32) {
         // Simplified implementation - in production, you'd maintain a mapping of token pairs to pool IDs
@@ -561,7 +650,7 @@ contract AaveV3FlashLoan is IFlashLoanReceiver, ReentrancyGuard {
         emit ProfitWithdrawn(token, amount);
     }
 
-    // Withdraw profits after successful arbitrage
+    // Legacy function - use withdrawAllProfits instead
     function withdrawProfits(address token) external onlyOwner {
         uint256 balance = IERC20(token).balanceOf(address(this));
         require(balance > 0, "No profits to withdraw");
